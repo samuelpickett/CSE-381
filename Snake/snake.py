@@ -9,15 +9,20 @@ import random
 import arcade
 
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+INITIAL_SCREEN_WIDTH = 800
+INITIAL_SCREEN_HEIGHT = 600
 SCREEN_TITLE = "Snake"
 
-CELL_SIZE = 20
+DEFAULT_CELL_SIZE = 20
+MIN_CELL_SIZE = 3
 SCORE_BAR_HEIGHT = 40
-GRID_WIDTH = SCREEN_WIDTH // CELL_SIZE
-GRID_HEIGHT = (SCREEN_HEIGHT - SCORE_BAR_HEIGHT) // CELL_SIZE
+DEFAULT_GRID_WIDTH = INITIAL_SCREEN_WIDTH // DEFAULT_CELL_SIZE
+DEFAULT_GRID_HEIGHT = (INITIAL_SCREEN_HEIGHT - SCORE_BAR_HEIGHT) // DEFAULT_CELL_SIZE
+MIN_GRID_SIZE = 16
+MAX_GRID_SIZE = 200
 MOVE_INTERVAL = 0.12
+MAX_SCREEN_AREA_FRACTION = 7 / 8
+WINDOW_VISIBILITY_MARGIN = 80
 
 BLACK = (0, 0, 0)
 GREEN = (0, 220, 0)
@@ -37,15 +42,26 @@ APPLE_COLORS = [
     ("Pink", (255, 70, 150), 6),
     ("Cyan", (0, 210, 220), 10),
 ]
+SPEED_OPTIONS = [
+    ("Slow", 0.20),
+    ("Normal", MOVE_INTERVAL),
+    ("Fast", 0.08),
+    ("Very fast", 0.05),
+]
 
 
 class SnakeGame(arcade.Window):
     """The main game window and Snake game state."""
 
     def __init__(self) -> None:
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+        super().__init__(INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT, SCREEN_TITLE)
         arcade.set_background_color(BLACK)
 
+        self.window_width = INITIAL_SCREEN_WIDTH
+        self.window_height = INITIAL_SCREEN_HEIGHT
+        self.cell_size = DEFAULT_CELL_SIZE
+        self.grid_width = DEFAULT_GRID_WIDTH
+        self.grid_height = DEFAULT_GRID_HEIGHT
         self.snake: list[tuple[int, int]] = []
         self.food: tuple[int, int] = (0, 0)
         self.direction = (1, 0)
@@ -54,56 +70,99 @@ class SnakeGame(arcade.Window):
         self.score = 0
         self.high_score = 0
         self.game_over = False
-        self.game_state = "menu"
-        self.menu_selection = 0
+        self.game_state = "main_menu"
+        self.main_menu_selection = 0
+        self.options_selection = 0
         self.snake_color_index = 0
         self.apple_color_index = 0
+        self.speed_index = 1
+        self.map_width_input = str(DEFAULT_GRID_WIDTH)
+        self.map_height_input = str(DEFAULT_GRID_HEIGHT)
+        self.dimension_editing = False
+        self.menu_error = ""
 
         self.score_text = arcade.Text(
             "Score: 0    High Score: 0",
             x=10,
-            y=SCREEN_HEIGHT - 30,
+            y=self.window_height - 30,
             color=WHITE,
             font_size=16,
         )
         self.menu_title = arcade.Text(
             "SNAKE",
-            x=SCREEN_WIDTH / 2,
-            y=SCREEN_HEIGHT - 130,
+            x=self.window_width / 2,
+            y=self.window_height - 130,
             color=GREEN,
             font_size=48,
             anchor_x="center",
         )
         self.menu_instructions = arcade.Text(
-            "UP/DOWN: choose    LEFT/RIGHT: change color    ENTER: play",
-            x=SCREEN_WIDTH / 2,
-            y=90,
+            "UP/DOWN: choose    LEFT/RIGHT: change    Type digits for map size    ESC: back",
+            x=self.window_width / 2,
+            y=70,
             color=GRAY,
             font_size=14,
             anchor_x="center",
         )
-        self.snake_option_text = arcade.Text("", x=250, y=330, font_size=22)
-        self.apple_option_text = arcade.Text("", x=250, y=250, font_size=22)
+        self.snake_option_text = arcade.Text("", x=250, y=380, font_size=20)
+        self.apple_option_text = arcade.Text("", x=250, y=320, font_size=20)
+        self.width_option_text = arcade.Text("", x=250, y=260, font_size=20)
+        self.height_option_text = arcade.Text("", x=250, y=200, font_size=20)
+        self.speed_option_text = arcade.Text("", x=250, y=140, font_size=20)
+        self.play_option_text = arcade.Text(
+            "> Play", x=self.window_width / 2, y=300, font_size=24, anchor_x="center"
+        )
+        self.options_option_text = arcade.Text(
+            "  Options",
+            x=self.window_width / 2,
+            y=240,
+            font_size=24,
+            anchor_x="center",
+        )
+        self.main_menu_instructions = arcade.Text(
+            "UP/DOWN: choose    ENTER: select",
+            x=self.window_width / 2,
+            y=100,
+            color=GRAY,
+            font_size=16,
+            anchor_x="center",
+        )
+        self.options_title = arcade.Text(
+            "OPTIONS",
+            x=self.window_width / 2,
+            y=self.window_height - 130,
+            color=GREEN,
+            font_size=42,
+            anchor_x="center",
+        )
+        self.menu_error_text = arcade.Text(
+            "",
+            x=self.window_width / 2,
+            y=105,
+            color=RED,
+            font_size=14,
+            anchor_x="center",
+        )
         self.high_score_menu_text = arcade.Text(
             "",
-            x=SCREEN_WIDTH / 2,
-            y=SCREEN_HEIGHT - 180,
+            x=self.window_width / 2,
+            y=self.window_height - 180,
             color=WHITE,
             font_size=18,
             anchor_x="center",
         )
         self.game_over_text = arcade.Text(
             "Game Over",
-            x=SCREEN_WIDTH / 2,
-            y=SCREEN_HEIGHT / 2 + 20,
+            x=self.window_width / 2,
+            y=self.window_height / 2 + 20,
             color=RED,
             font_size=36,
             anchor_x="center",
         )
         self.restart_text = arcade.Text(
-            "Press R to restart or M for menu",
-            x=SCREEN_WIDTH / 2,
-            y=SCREEN_HEIGHT / 2 - 25,
+            "Press R to restart or ESC for menu",
+            x=self.window_width / 2,
+            y=self.window_height / 2 - 25,
             color=WHITE,
             font_size=18,
             anchor_x="center",
@@ -111,6 +170,7 @@ class SnakeGame(arcade.Window):
 
         self.update_menu_text()
         self.reset_game()
+        self.center_window()
 
     @property
     def snake_color(self) -> tuple[int, int, int]:
@@ -132,6 +192,11 @@ class SnakeGame(arcade.Window):
         selected = APPLE_COLORS[self.apple_color_index]
         return selected[1] if selected[2] <= self.high_score else APPLE_COLORS[0][1]
 
+    @property
+    def move_interval(self) -> float:
+        """Return the delay between Snake movements for the selected speed."""
+        return SPEED_OPTIONS[self.speed_index][1]
+
     def reset_locked_colors_to_default(self) -> None:
         """Prevent locked menu choices from becoming active in a new round."""
         if SNAKE_COLORS[self.snake_color_index][2] > self.high_score:
@@ -139,10 +204,96 @@ class SnakeGame(arcade.Window):
         if APPLE_COLORS[self.apple_color_index][2] > self.high_score:
             self.apple_color_index = 0
 
+    def update_text_layout(self) -> None:
+        """Keep text positions aligned with the current window dimensions."""
+        self.score_text.y = self.window_height - 30
+        self.menu_title.x = self.window_width / 2
+        self.menu_title.y = self.window_height - 130
+        self.options_title.x = self.window_width / 2
+        self.options_title.y = self.window_height - 130
+        self.menu_instructions.x = self.window_width / 2
+        self.main_menu_instructions.x = self.window_width / 2
+        self.play_option_text.x = self.window_width / 2
+        self.options_option_text.x = self.window_width / 2
+        self.high_score_menu_text.x = self.window_width / 2
+        self.high_score_menu_text.y = self.window_height - 180
+        self.menu_error_text.x = self.window_width / 2
+        self.game_over_text.x = self.window_width / 2
+        self.game_over_text.y = self.window_height / 2 + 20
+        self.restart_text.x = self.window_width / 2
+        self.restart_text.y = self.window_height / 2 - 25
+
+    def center_window(self) -> None:
+        """Place the current window in the center of the primary display."""
+        display_width, display_height = arcade.get_display_size()
+        window_x = max(0, (display_width - self.window_width) // 2)
+        window_y = max(0, (display_height - self.window_height) // 2)
+        self.set_location(window_x, window_y)
+
+    def configure_map(self) -> None:
+        """Set the cell size and window size for the requested grid."""
+        self.grid_width = int(self.map_width_input)
+        self.grid_height = int(self.map_height_input)
+
+        display_width, display_height = arcade.get_display_size()
+        usable_display_width = max(1, display_width - WINDOW_VISIBILITY_MARGIN)
+        usable_display_height = max(1, display_height - WINDOW_VISIBILITY_MARGIN)
+        max_screen_area = int(
+            display_width * display_height * MAX_SCREEN_AREA_FRACTION
+        )
+        self.cell_size = min(
+            usable_display_width // self.grid_width,
+            (usable_display_height - SCORE_BAR_HEIGHT) // self.grid_height,
+        )
+
+        # Keep the entire window within seven-eighths of the display area.
+        # The loop finds the largest whole-pixel cell size that satisfies the
+        # area limit while also keeping the window on the physical display.
+        while self.cell_size > MIN_CELL_SIZE:
+            candidate_width = self.grid_width * self.cell_size
+            candidate_height = SCORE_BAR_HEIGHT + self.grid_height * self.cell_size
+            candidate_area = candidate_width * candidate_height
+            if candidate_area <= max_screen_area:
+                break
+            self.cell_size -= 1
+
+        self.window_width = self.grid_width * self.cell_size
+        self.window_height = SCORE_BAR_HEIGHT + self.grid_height * self.cell_size
+        self.set_size(self.window_width, self.window_height)
+        self.update_text_layout()
+        self.center_window()
+
+    def validate_map_inputs(self) -> bool:
+        """Check that both menu fields contain usable grid dimensions."""
+        try:
+            width = int(self.map_width_input)
+            height = int(self.map_height_input)
+        except ValueError:
+            self.menu_error = "Width and height must be whole numbers."
+            return False
+
+        if not (MIN_GRID_SIZE <= width <= MAX_GRID_SIZE):
+            self.menu_error = f"Width must be between {MIN_GRID_SIZE} and {MAX_GRID_SIZE}."
+            return False
+        if not (MIN_GRID_SIZE <= height <= MAX_GRID_SIZE):
+            self.menu_error = f"Height must be between {MIN_GRID_SIZE} and {MAX_GRID_SIZE}."
+            return False
+
+        self.menu_error = ""
+        return True
+
+    def restore_menu_window(self) -> None:
+        """Return to the original window size when opening the menu."""
+        self.window_width = INITIAL_SCREEN_WIDTH
+        self.window_height = INITIAL_SCREEN_HEIGHT
+        self.set_size(self.window_width, self.window_height)
+        self.update_text_layout()
+        self.center_window()
+
     def reset_game(self) -> None:
         """Start a new game inside the area below the score bar."""
-        center_x = GRID_WIDTH // 2
-        center_y = GRID_HEIGHT // 2
+        center_x = self.grid_width // 2
+        center_y = self.grid_height // 2
         self.snake = [
             (center_x, center_y),
             (center_x - 1, center_y),
@@ -160,8 +311,8 @@ class SnakeGame(arcade.Window):
         """Place food in a free grid cell."""
         available_cells = [
             (x, y)
-            for x in range(GRID_WIDTH)
-            for y in range(GRID_HEIGHT)
+            for x in range(self.grid_width)
+            for y in range(self.grid_height)
             if (x, y) not in self.snake
         ]
         if available_cells:
@@ -175,9 +326,28 @@ class SnakeGame(arcade.Window):
         self.apple_option_text.text = self.option_label(
             "Apple", APPLE_COLORS, self.apple_color_index
         )
+        self.width_option_text.text = self.dimension_label(
+            "Grid width", self.map_width_input, 2
+        )
+        self.height_option_text.text = self.dimension_label(
+            "Grid height", self.map_height_input, 3
+        )
+        self.speed_option_text.text = self.speed_label()
         self.snake_option_text.color = self.snake_color
         self.apple_option_text.color = self.apple_color
         self.high_score_menu_text.text = f"High score: {self.high_score}"
+        self.menu_error_text.text = self.menu_error
+
+    def dimension_label(self, title: str, value: str, row: int) -> str:
+        """Create a selectable menu label for a grid dimension."""
+        marker = ">" if self.options_selection == row else " "
+        return f"{marker} {title}: {value} cells"
+
+    def speed_label(self) -> str:
+        """Create the selectable speed label for the options screen."""
+        marker = ">" if self.options_selection == 4 else " "
+        speed_name, _ = SPEED_OPTIONS[self.speed_index]
+        return f"{marker} Speed: {speed_name}"
 
     def option_label(
         self,
@@ -190,42 +360,61 @@ class SnakeGame(arcade.Window):
         locked = unlock_score > self.high_score
         status = f"(Locked - High Score {unlock_score})" if locked else ""
         selected_row = 0 if title == "Snake" else 1
-        marker = ">" if self.menu_selection == selected_row else " "
+        marker = ">" if self.options_selection == selected_row else " "
         return f"{marker} {title} color: {name} {status}"
 
     def on_draw(self) -> None:
         self.clear()
-        if self.game_state == "menu":
-            self.draw_menu()
+        if self.game_state == "main_menu":
+            self.draw_main_menu()
+            return
+        if self.game_state == "options":
+            self.draw_options()
             return
 
         self.draw_game()
 
-    def draw_menu(self) -> None:
-        """Draw the color-selection menu."""
+    def draw_main_menu(self) -> None:
+        """Draw the main menu with Play and Options choices."""
         self.menu_title.draw()
+        self.high_score_menu_text.draw()
+        self.play_option_text.text = "> Play" if self.main_menu_selection == 0 else "  Play"
+        self.options_option_text.text = (
+            "> Options" if self.main_menu_selection == 1 else "  Options"
+        )
+        self.play_option_text.draw()
+        self.options_option_text.draw()
+        self.main_menu_instructions.draw()
+
+    def draw_options(self) -> None:
+        """Draw the color and map-size settings screen."""
+        self.options_title.draw()
         self.high_score_menu_text.draw()
         self.snake_option_text.draw()
         self.apple_option_text.draw()
+        self.width_option_text.draw()
+        self.height_option_text.draw()
+        self.speed_option_text.draw()
+        self.menu_error_text.draw()
         self.menu_instructions.draw()
 
-        arcade.draw_rect_filled(arcade.rect.XYWH(190, 340, 30, 30), self.snake_color)
-        arcade.draw_rect_filled(arcade.rect.XYWH(190, 260, 30, 30), self.apple_color)
+        arcade.draw_rect_filled(arcade.rect.XYWH(190, 390, 30, 30), self.snake_color)
+        arcade.draw_rect_filled(arcade.rect.XYWH(190, 330, 30, 30), self.apple_color)
 
     def draw_game(self) -> None:
         """Draw the score bar and game board."""
         # The wall sits directly beneath the score bar. The snake cannot enter
         # the reserved top area where the score text is displayed.
-        board_top = SCREEN_HEIGHT - SCORE_BAR_HEIGHT
-        arcade.draw_line(0, board_top, SCREEN_WIDTH, board_top, GRAY, 2)
+        board_top = self.grid_height * self.cell_size
+        arcade.draw_line(0, board_top, self.window_width, board_top, GRAY, 2)
 
         for x, y in self.snake:
             arcade.draw_rect_filled(
                 arcade.rect.XYWH(
-                    x * CELL_SIZE + CELL_SIZE / 2,
-                    y * CELL_SIZE + CELL_SIZE / 2,
-                    CELL_SIZE - 2,
-                    CELL_SIZE - 2,
+                    x * self.cell_size + self.cell_size / 2,
+                    y * self.cell_size + self.cell_size / 2,
+                    self.cell_size - 2,
+                    self.cell_size - 2,
                 ),
                 self.active_snake_color,
             )
@@ -233,10 +422,10 @@ class SnakeGame(arcade.Window):
         food_x, food_y = self.food
         arcade.draw_rect_filled(
             arcade.rect.XYWH(
-                food_x * CELL_SIZE + CELL_SIZE / 2,
-                food_y * CELL_SIZE + CELL_SIZE / 2,
-                CELL_SIZE - 2,
-                CELL_SIZE - 2,
+                food_x * self.cell_size + self.cell_size / 2,
+                food_y * self.cell_size + self.cell_size / 2,
+                self.cell_size - 2,
+                self.cell_size - 2,
             ),
             self.active_apple_color,
         )
@@ -252,9 +441,9 @@ class SnakeGame(arcade.Window):
             return
 
         self.elapsed += delta_time
-        if self.elapsed < MOVE_INTERVAL:
+        if self.elapsed < self.move_interval:
             return
-        self.elapsed -= MOVE_INTERVAL
+        self.elapsed -= self.move_interval
 
         self.direction = self.next_direction
         head_x, head_y = self.snake[0]
@@ -262,7 +451,8 @@ class SnakeGame(arcade.Window):
         new_head = (head_x + direction_x, head_y + direction_y)
 
         hit_wall = not (
-            0 <= new_head[0] < GRID_WIDTH and 0 <= new_head[1] < GRID_HEIGHT
+            0 <= new_head[0] < self.grid_width
+            and 0 <= new_head[1] < self.grid_height
         )
         hit_self = new_head in self.snake[:-1]
         if hit_wall or hit_self:
@@ -289,15 +479,95 @@ class SnakeGame(arcade.Window):
         return (current_index + step) % len(options)
 
     def on_key_press(self, key: int, modifiers: int) -> None:
-        if self.game_state == "menu":
+        if self.game_state == "main_menu":
+            if key in (arcade.key.UP, arcade.key.W, arcade.key.DOWN, arcade.key.S):
+                step = -1 if key in (arcade.key.UP, arcade.key.W) else 1
+                self.main_menu_selection = (self.main_menu_selection + step) % 2
+                return
             if key in (arcade.key.ENTER, arcade.key.SPACE):
-                self.reset_locked_colors_to_default()
-                self.update_menu_text()
-                self.game_state = "playing"
-                self.reset_game()
+                if self.main_menu_selection == 1:
+                    self.game_state = "options"
+                    self.options_selection = 0
+                    self.restore_menu_window()
+                    self.update_menu_text()
+                else:
+                    if not self.validate_map_inputs():
+                        self.game_state = "options"
+                        self.restore_menu_window()
+                        self.update_menu_text()
+                        return
+                    self.reset_locked_colors_to_default()
+                    self.configure_map()
+                    self.game_state = "playing"
+                    self.reset_game()
+                return
+            return
+
+        if self.game_state == "options":
+            if key == arcade.key.ESCAPE:
+                self.game_state = "main_menu"
+                self.restore_menu_window()
                 return
             if key in (arcade.key.UP, arcade.key.W, arcade.key.DOWN, arcade.key.S):
-                self.menu_selection = 1 - self.menu_selection
+                step = -1 if key in (arcade.key.UP, arcade.key.W) else 1
+                self.options_selection = (self.options_selection + step) % 5
+                self.dimension_editing = False
+                self.update_menu_text()
+                return
+            if self.options_selection in (2, 3):
+                if key == arcade.key.BACKSPACE:
+                    input_value = (
+                        self.map_width_input
+                        if self.options_selection == 2
+                        else self.map_height_input
+                    )
+                    input_value = input_value[:-1]
+                    if self.options_selection == 2:
+                        self.map_width_input = input_value
+                    else:
+                        self.map_height_input = input_value
+                    self.dimension_editing = True
+                    self.menu_error = ""
+                    self.update_menu_text()
+                    return
+
+                digit = next(
+                    (
+                        digit
+                        for digit in range(10)
+                        if key in (
+                            getattr(arcade.key, f"KEY_{digit}"),
+                            getattr(arcade.key, f"NUM_{digit}"),
+                        )
+                    ),
+                    None,
+                )
+                if digit is not None:
+                    if not self.dimension_editing:
+                        if self.options_selection == 2:
+                            self.map_width_input = ""
+                        else:
+                            self.map_height_input = ""
+                        self.dimension_editing = True
+                    if self.options_selection == 2:
+                        self.map_width_input += str(digit)
+                        self.map_width_input = self.map_width_input[-3:]
+                    else:
+                        self.map_height_input += str(digit)
+                        self.map_height_input = self.map_height_input[-3:]
+                    self.menu_error = ""
+                    self.update_menu_text()
+                    return
+
+                return
+            if self.options_selection == 4 and key in (
+                arcade.key.LEFT,
+                arcade.key.A,
+                arcade.key.RIGHT,
+                arcade.key.D,
+            ):
+                step = -1 if key in (arcade.key.LEFT, arcade.key.A) else 1
+                self.speed_index = (self.speed_index + step) % len(SPEED_OPTIONS)
                 self.update_menu_text()
                 return
             if key in (
@@ -307,20 +577,20 @@ class SnakeGame(arcade.Window):
                 arcade.key.D,
             ):
                 step = -1 if key in (arcade.key.LEFT, arcade.key.A) else 1
-                if self.menu_selection == 0:
+                if self.options_selection == 0:
                     self.snake_color_index = self.cycle_color(
                         SNAKE_COLORS, self.snake_color_index, step
                     )
-                else:
+                elif self.options_selection == 1:
                     self.apple_color_index = self.cycle_color(
                         APPLE_COLORS, self.apple_color_index, step
                     )
                 self.update_menu_text()
             return
 
-        if key == arcade.key.M:
-            self.game_state = "menu"
-            self.update_menu_text()
+        if key == arcade.key.ESCAPE:
+            self.game_state = "main_menu"
+            self.restore_menu_window()
             return
         if key == arcade.key.R and self.game_over:
             self.reset_game()
