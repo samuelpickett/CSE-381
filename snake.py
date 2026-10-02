@@ -8,6 +8,11 @@ import random
 
 import arcade
 
+try:
+    from .snake_ai import SnakeAI
+except ImportError:  # Supports running this file directly from the Snake folder.
+    from snake_ai import SnakeAI
+
 
 INITIAL_SCREEN_WIDTH = 800
 INITIAL_SCREEN_HEIGHT = 600
@@ -47,6 +52,7 @@ SPEED_OPTIONS = [
     ("Normal", MOVE_INTERVAL),
     ("Fast", 0.08),
     ("Very fast", 0.05),
+    ("Incredibly fast", 0.01),
 ]
 
 
@@ -73,6 +79,8 @@ class SnakeGame(arcade.Window):
         self.score = 0
         self.high_score = 0
         self.game_over = False
+        self.ai_enabled = False
+        self.ai = SnakeAI(minimum_access=0.60)
         self.game_state = "main_menu"
         self.main_menu_selection = 0
         self.options_selection = 0
@@ -92,6 +100,14 @@ class SnakeGame(arcade.Window):
             y=self.window_height - 30,
             color=WHITE,
             font_size=16,
+        )
+        self.ai_status_text = arcade.Text(
+            "AUTO: OFF (P to start)",
+            x=self.window_width - 10,
+            y=self.window_height - 30,
+            color=GRAY,
+            font_size=14,
+            anchor_x="right",
         )
         self.menu_title = arcade.Text(
             "SNAKE",
@@ -191,6 +207,8 @@ class SnakeGame(arcade.Window):
     @property
     def active_snake_color(self) -> tuple[int, int, int]:
         """Use the selected snake color only after it has been unlocked."""
+        if self.ai_enabled and self.ai.coverage_mode:
+            return RED
         selected = SNAKE_COLORS[self.snake_color_index]
         return selected[1] if selected[2] <= self.high_score else SNAKE_COLORS[0][1]
 
@@ -217,6 +235,8 @@ class SnakeGame(arcade.Window):
     def update_text_layout(self) -> None:
         """Keep text positions aligned with the current window dimensions."""
         self.score_text.y = self.window_height - 30
+        self.ai_status_text.x = self.window_width - 10
+        self.ai_status_text.y = self.window_height - 30
         self.menu_title.x = self.window_width / 2
         self.menu_title.y = self.window_height - 130
         self.options_title.x = self.window_width / 2
@@ -317,6 +337,9 @@ class SnakeGame(arcade.Window):
         self.elapsed = 0.0
         self.score = 0
         self.game_over = False
+        self.ai_enabled = False
+        self.ai.reset()
+        self.ai_status_text.text = "AUTO: OFF (P to start)"
         self.score_text.text = f"Score: 0    High Score: {self.high_score}"
         self.place_food()
 
@@ -452,6 +475,7 @@ class SnakeGame(arcade.Window):
         )
 
         self.score_text.draw()
+        self.ai_status_text.draw()
 
         if self.game_over:
             self.game_over_text.draw()
@@ -468,6 +492,23 @@ class SnakeGame(arcade.Window):
             return
         self.elapsed -= self.move_interval
 
+        # In autopilot mode, choose a fresh A* move each game tick. Replanning
+        # keeps the route responsive as the Snake body shifts.
+        if self.ai_enabled:
+            ai_direction = self.ai.choose_direction(
+                self.snake,
+                self.food,
+                self.grid_width,
+                self.grid_height,
+                self.direction,
+            )
+            self.next_direction = ai_direction
+            self.ai_status_text.text = (
+                "AUTO: COVERING (P to stop)"
+                if self.ai.coverage_mode
+                else "AUTO: SEEKING APPLE (P to stop)"
+            )
+
         self.direction = self.next_direction
         head_x, head_y = self.snake[0]
         direction_x, direction_y = self.direction
@@ -478,7 +519,8 @@ class SnakeGame(arcade.Window):
             0 <= new_head[0] < self.grid_width
             and 0 <= new_head[1] < self.grid_height
         )
-        hit_self = new_head in set(self.snake[1:])
+        collision_body = self.snake if new_head == self.food else self.snake[:-1]
+        hit_self = new_head in set(collision_body)
         if hit_wall or hit_self:
             self.game_over = True
             return
@@ -622,6 +664,16 @@ class SnakeGame(arcade.Window):
             self.game_state = "main_menu"
             self.restore_menu_window()
             return
+        if key == arcade.key.P and not self.game_over:
+            self.ai_enabled = not self.ai_enabled
+            if self.ai_enabled:
+                self.ai.reset()
+            self.ai_status_text.text = (
+                "AUTO: SEEKING APPLE (P to stop)"
+                if self.ai_enabled
+                else "AUTO: OFF (P to start)"
+            )
+            return
         if key == arcade.key.R and self.game_over:
             self.reset_game()
             return
@@ -638,6 +690,9 @@ class SnakeGame(arcade.Window):
             arcade.key.RIGHT: (1, 0),
             arcade.key.D: (1, 0),
         }
+        if self.ai_enabled:
+            return
+
         new_direction = directions.get(key)
         if new_direction is None:
             return
