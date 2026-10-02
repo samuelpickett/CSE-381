@@ -54,9 +54,12 @@ class SnakeGame(arcade.Window):
     """The main game window and Snake game state."""
 
     def __init__(self) -> None:
+        """Create the window, initialize game state, and build the UI text."""
         super().__init__(INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT, SCREEN_TITLE)
         arcade.set_background_color(BLACK)
 
+        # Map and window state are kept separately so the window can resize
+        # without changing the logical grid coordinates used by the game.
         self.window_width = INITIAL_SCREEN_WIDTH
         self.window_height = INITIAL_SCREEN_HEIGHT
         self.cell_size = DEFAULT_CELL_SIZE
@@ -81,6 +84,8 @@ class SnakeGame(arcade.Window):
         self.dimension_editing = False
         self.menu_error = ""
 
+        # Text objects are created once and updated as state changes. This is
+        # faster than recreating text every frame with arcade.draw_text().
         self.score_text = arcade.Text(
             "Score: 0    High Score: 0",
             x=10,
@@ -169,15 +174,18 @@ class SnakeGame(arcade.Window):
         )
 
         self.update_menu_text()
+        self.update_main_menu_text()
         self.reset_game()
         self.center_window()
 
     @property
     def snake_color(self) -> tuple[int, int, int]:
+        """Return the color currently selected for the Snake menu preview."""
         return SNAKE_COLORS[self.snake_color_index][1]
 
     @property
     def apple_color(self) -> tuple[int, int, int]:
+        """Return the color currently selected for the apple menu preview."""
         return APPLE_COLORS[self.apple_color_index][1]
 
     @property
@@ -199,6 +207,8 @@ class SnakeGame(arcade.Window):
 
     def reset_locked_colors_to_default(self) -> None:
         """Prevent locked menu choices from becoming active in a new round."""
+        # A locked preview can be selected in Options, but gameplay always
+        # starts with the default color until that color is unlocked.
         if SNAKE_COLORS[self.snake_color_index][2] > self.high_score:
             self.snake_color_index = 0
         if APPLE_COLORS[self.apple_color_index][2] > self.high_score:
@@ -232,6 +242,7 @@ class SnakeGame(arcade.Window):
 
     def configure_map(self) -> None:
         """Set the cell size and window size for the requested grid."""
+        # Convert the text fields to logical grid dimensions.
         self.grid_width = int(self.map_width_input)
         self.grid_height = int(self.map_height_input)
 
@@ -241,6 +252,7 @@ class SnakeGame(arcade.Window):
         max_screen_area = int(
             display_width * display_height * MAX_SCREEN_AREA_FRACTION
         )
+        # Start with the largest square cell that fits on the physical display.
         self.cell_size = min(
             usable_display_width // self.grid_width,
             (usable_display_height - SCORE_BAR_HEIGHT) // self.grid_height,
@@ -292,6 +304,7 @@ class SnakeGame(arcade.Window):
 
     def reset_game(self) -> None:
         """Start a new game inside the area below the score bar."""
+        # The Snake is stored as grid coordinates, not pixel coordinates.
         center_x = self.grid_width // 2
         center_y = self.grid_height // 2
         self.snake = [
@@ -309,11 +322,13 @@ class SnakeGame(arcade.Window):
 
     def place_food(self) -> None:
         """Place food in a free grid cell."""
+        # Use a set for membership checks so each candidate is tested in O(1).
+        occupied_cells = set(self.snake)
         available_cells = [
             (x, y)
             for x in range(self.grid_width)
             for y in range(self.grid_height)
-            if (x, y) not in self.snake
+            if (x, y) not in occupied_cells
         ]
         if available_cells:
             self.food = random.choice(available_cells)
@@ -337,6 +352,15 @@ class SnakeGame(arcade.Window):
         self.apple_option_text.color = self.apple_color
         self.high_score_menu_text.text = f"High score: {self.high_score}"
         self.menu_error_text.text = self.menu_error
+
+    def update_main_menu_text(self) -> None:
+        """Refresh the selection marker on the main menu."""
+        self.play_option_text.text = (
+            "> Play" if self.main_menu_selection == 0 else "  Play"
+        )
+        self.options_option_text.text = (
+            "> Options" if self.main_menu_selection == 1 else "  Options"
+        )
 
     def dimension_label(self, title: str, value: str, row: int) -> str:
         """Create a selectable menu label for a grid dimension."""
@@ -364,6 +388,7 @@ class SnakeGame(arcade.Window):
         return f"{marker} {title} color: {name} {status}"
 
     def on_draw(self) -> None:
+        """Draw the screen that corresponds to the current game state."""
         self.clear()
         if self.game_state == "main_menu":
             self.draw_main_menu()
@@ -378,10 +403,6 @@ class SnakeGame(arcade.Window):
         """Draw the main menu with Play and Options choices."""
         self.menu_title.draw()
         self.high_score_menu_text.draw()
-        self.play_option_text.text = "> Play" if self.main_menu_selection == 0 else "  Play"
-        self.options_option_text.text = (
-            "> Options" if self.main_menu_selection == 1 else "  Options"
-        )
         self.play_option_text.draw()
         self.options_option_text.draw()
         self.main_menu_instructions.draw()
@@ -437,9 +458,11 @@ class SnakeGame(arcade.Window):
             self.restart_text.draw()
 
     def on_update(self, delta_time: float) -> None:
+        """Advance the Snake after enough time has elapsed for its speed."""
         if self.game_state != "playing" or self.game_over:
             return
 
+        # Accumulate frame time so movement speed is independent of frame rate.
         self.elapsed += delta_time
         if self.elapsed < self.move_interval:
             return
@@ -450,15 +473,17 @@ class SnakeGame(arcade.Window):
         direction_x, direction_y = self.direction
         new_head = (head_x + direction_x, head_y + direction_y)
 
+        # A move is invalid if the new head leaves the grid or hits the body.
         hit_wall = not (
             0 <= new_head[0] < self.grid_width
             and 0 <= new_head[1] < self.grid_height
         )
-        hit_self = new_head in self.snake[:-1]
+        hit_self = new_head in set(self.snake[1:])
         if hit_wall or hit_self:
             self.game_over = True
             return
 
+        # Add the new head; remove the tail unless food was eaten.
         self.snake.insert(0, new_head)
         if new_head == self.food:
             self.score += 1
@@ -479,10 +504,13 @@ class SnakeGame(arcade.Window):
         return (current_index + step) % len(options)
 
     def on_key_press(self, key: int, modifiers: int) -> None:
+        """Handle menu navigation, text entry, game controls, and exit."""
         if self.game_state == "main_menu":
+            # The main menu only chooses between Play and Options.
             if key in (arcade.key.UP, arcade.key.W, arcade.key.DOWN, arcade.key.S):
                 step = -1 if key in (arcade.key.UP, arcade.key.W) else 1
                 self.main_menu_selection = (self.main_menu_selection + step) % 2
+                self.update_main_menu_text()
                 return
             if key in (arcade.key.ENTER, arcade.key.SPACE):
                 if self.main_menu_selection == 1:
@@ -504,6 +532,7 @@ class SnakeGame(arcade.Window):
             return
 
         if self.game_state == "options":
+            # Options uses four navigation rows plus the speed row.
             if key == arcade.key.ESCAPE:
                 self.game_state = "main_menu"
                 self.restore_menu_window()
@@ -589,6 +618,7 @@ class SnakeGame(arcade.Window):
             return
 
         if key == arcade.key.ESCAPE:
+            # Escape ends the active round and returns to the main menu.
             self.game_state = "main_menu"
             self.restore_menu_window()
             return
@@ -618,6 +648,7 @@ class SnakeGame(arcade.Window):
 
 
 def main() -> None:
+    """Create the game and hand control to Arcade's event loop."""
     SnakeGame()
     arcade.run()
 
